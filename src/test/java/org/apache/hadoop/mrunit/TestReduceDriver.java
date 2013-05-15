@@ -21,6 +21,7 @@ import static org.apache.hadoop.mrunit.ExtendedAssert.assertListEquals;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -76,6 +77,8 @@ public class TestReduceDriver {
     assertListEquals(out, expected);
 
   }
+  
+ 
 
   @Test
   public void testTestRun1() throws IOException {
@@ -127,6 +130,47 @@ public class TestReduceDriver {
   }
 
   @Test
+  public void testTestRun3ComparatorOK() throws IOException {
+    Comparator<LongWritable> toleranceComparator = new Comparator<LongWritable>() {
+
+      @Override
+      public int compare(LongWritable o1, LongWritable o2) {
+        if (Math.abs(o1.get() - o2.get()) < 5) {
+            return 0;
+        }
+        return o1.compareTo(o2);
+      }
+    };
+    driver.setValueComparator(toleranceComparator);
+    driver.withInputKey(new Text("foo")).withInputValue(new LongWritable(IN_A))
+        .withInputValue(new LongWritable(IN_B))
+        .withOutput(new Text("foo"), new LongWritable(INCORRECT_OUT))
+        .runTest(true);
+  }
+
+  @Test
+  public void testTestRun3ComparatorFail() throws IOException {
+    Comparator<LongWritable> toleranceComparator = new Comparator<LongWritable>() {
+
+      @Override
+      public int compare(LongWritable o1, LongWritable o2) {
+        if (Math.abs(o1.get() - o2.get()) < 2) {
+            return 0;
+        }
+        return o1.compareTo(o2);
+      }
+    };
+    driver.setValueComparator(toleranceComparator);
+    thrown.expectAssertionErrorMessage("2 Error(s)");
+    thrown.expectAssertionErrorMessage("Missing expected output (foo, 12)");
+    thrown.expectAssertionErrorMessage("Received unexpected output (foo, 10)");
+    driver.withInputKey(new Text("foo")).withInputValue(new LongWritable(IN_A))
+        .withInputValue(new LongWritable(IN_B))
+        .withOutput(new Text("foo"), new LongWritable(INCORRECT_OUT))
+        .runTest(true);
+  }
+
+  @Test
   public void testTestRun4() throws IOException {
     thrown
         .expectAssertionErrorMessage("2 Error(s): (Missing expected output (foo, 4) at position 0., "
@@ -148,10 +192,10 @@ public class TestReduceDriver {
 
   @Test
   public void testTestRun5() throws IOException {
-    thrown
-        .expectAssertionErrorMessage("3 Error(s): (Missing expected output (foo, 6) at position 1., "
-            + "Missing expected output (foo, 4) at position 0., "
-            + "Received unexpected output (foo, 10) at position 0.)");
+    thrown.expectAssertionErrorMessage("3 Error(s)");
+    thrown.expectAssertionErrorMessage("Missing expected output (foo, 4) at position 0.");
+    thrown.expectAssertionErrorMessage("Missing expected output (foo, 6) at position 1.");
+    thrown.expectAssertionErrorMessage("Received unexpected output (foo, 10) at position 0.");
     driver.withInputKey(new Text("foo")).withInputValue(new LongWritable(IN_A))
         .withInputValue(new LongWritable(IN_B))
         .withOutput(new Text("foo"), new LongWritable(IN_A))
@@ -160,10 +204,10 @@ public class TestReduceDriver {
 
   @Test
   public void testTestRun5OrderInsensitive() throws IOException {
-    thrown
-        .expectAssertionErrorMessage("3 Error(s): (Missing expected output (foo, 6), "
-            + "Missing expected output (foo, 4), "
-            + "Received unexpected output (foo, 10))");
+    thrown.expectAssertionErrorMessage("3 Error(s)");
+    thrown.expectAssertionErrorMessage("Missing expected output (foo, 4)");
+    thrown.expectAssertionErrorMessage("Missing expected output (foo, 6)");
+    thrown.expectAssertionErrorMessage("Received unexpected output (foo, 10)");
     driver.withInputKey(new Text("foo")).withInputValue(new LongWritable(IN_A))
         .withInputValue(new LongWritable(IN_B))
         .withOutput(new Text("foo"), new LongWritable(IN_A))
@@ -258,7 +302,7 @@ public class TestReduceDriver {
 
     driver.withAll(inputs).withAllOutput(expected).runTest();
   }
-  
+
   @Test
   public void testNoInput() throws IOException {
     driver = ReduceDriver.newReduceDriver();
@@ -342,7 +386,7 @@ public class TestReduceDriver {
         .withCounter("category", "count", 1).withCounter("category", "sum", 2)
         .runTest();
   }
-  
+
   @Test
   public void testWithCounterAndNoneMissing() throws IOException {
     final ReduceDriver<Text, Text, Text, Text> driver = ReduceDriver
@@ -406,6 +450,96 @@ public class TestReduceDriver {
         .withCounter("category", "sum", 2).runTest();
   }
 
+  @Test
+  public void testWithCounterMultipleInput() throws IOException {
+    final ReduceDriver<Text, Text, Text, Text> driver = ReduceDriver
+        .newReduceDriver();
+
+    final LinkedList<Text> valuesAlpha = new LinkedList<Text>();
+    valuesAlpha.add(new Text("a"));
+    final LinkedList<Text> valuesBeta = new LinkedList<Text>();
+    valuesBeta.add(new Text("b"));
+
+    driver.withReducer(new ReducerWithCounters<Text, Text, Text, Text>())
+        .withInput(new Text("hie"), valuesAlpha)
+        .withInput(new Text("hie"), valuesBeta)
+        .withOutput(new Text("hie"), new Text("a"))
+        .withOutput(new Text("hie"), new Text("b"))
+        .withCounter(ReducerWithCounters.Counters.COUNT, 2)
+        .withCounter(ReducerWithCounters.Counters.SUM, 2)
+        .withCounter("category", "count", 2).withCounter("category", "sum", 2)
+        .runTest();
+  }
+  
+  @Test
+  public void testWithCounterAndNoneMissingMultipleInput() throws IOException {
+    final ReduceDriver<Text, Text, Text, Text> driver = ReduceDriver
+        .newReduceDriver();
+
+    final LinkedList<Text> valuesAlpha = new LinkedList<Text>();
+    valuesAlpha.add(new Text("a"));
+    final LinkedList<Text> valuesBeta = new LinkedList<Text>();
+    valuesBeta.add(new Text("b"));
+
+    driver.withReducer(new ReducerWithCounters<Text, Text, Text, Text>())
+        .withInput(new Text("hie"), valuesAlpha)
+        .withInput(new Text("hie"), valuesBeta)
+        .withOutput(new Text("hie"), new Text("a"))
+        .withOutput(new Text("hie"), new Text("b")).withStrictCounterChecking()
+        .withCounter(ReducerWithCounters.Counters.COUNT, 2)
+        .withCounter(ReducerWithCounters.Counters.SUM, 2)
+        .withCounter("category", "count", 2).withCounter("category", "sum", 2)
+        .runTest();
+  }
+
+  @Test
+  public void testWithCounterAndEnumCounterMissingMultipleInput() throws IOException {
+    final ReduceDriver<Text, Text, Text, Text> driver = ReduceDriver
+        .newReduceDriver();
+
+    thrown
+        .expectAssertionErrorMessage("1 Error(s): (Actual counter ("
+            + "\"org.apache.hadoop.mrunit.TestReduceDriver$ReducerWithCounters$Counters\",\"COUNT\")"
+            + " was not found in expected counters");
+
+    final LinkedList<Text> valuesAlpha = new LinkedList<Text>();
+    valuesAlpha.add(new Text("a"));
+    final LinkedList<Text> valuesBeta = new LinkedList<Text>();
+    valuesBeta.add(new Text("b"));
+
+    driver.withReducer(new ReducerWithCounters<Text, Text, Text, Text>())
+        .withInput(new Text("hie"), valuesAlpha)
+        .withInput(new Text("hie"), valuesBeta)
+        .withOutput(new Text("hie"), new Text("a"))
+        .withOutput(new Text("hie"), new Text("b")).withStrictCounterChecking()
+        .withCounter(ReducerWithCounters.Counters.SUM, 2)
+        .withCounter("category", "count", 2).withCounter("category", "sum", 2)
+        .runTest();
+  }
+
+  @Test
+  public void testWithCounterAndStringCounterMissingMultipleInput() throws IOException {
+    final ReduceDriver<Text, Text, Text, Text> driver = ReduceDriver
+        .newReduceDriver();
+
+    thrown.expectAssertionErrorMessage("1 Error(s): (Actual counter ("
+        + "\"category\",\"count\")" + " was not found in expected counters");
+
+    final LinkedList<Text> valuesAlpha = new LinkedList<Text>();
+    valuesAlpha.add(new Text("a"));
+    final LinkedList<Text> valuesBeta = new LinkedList<Text>();
+    valuesBeta.add(new Text("b"));
+
+    driver.withReducer(new ReducerWithCounters<Text, Text, Text, Text>())
+        .withInput(new Text("hie"), valuesAlpha)
+        .withInput(new Text("hie"), valuesBeta)
+        .withOutput(new Text("hie"), new Text("a"))
+        .withOutput(new Text("hie"), new Text("b")).withStrictCounterChecking()
+        .withCounter(ReducerWithCounters.Counters.COUNT, 2)
+        .withCounter(ReducerWithCounters.Counters.SUM, 2)
+        .withCounter("category", "sum", 2).runTest();
+  }
+  
   @Test
   public void testWithFailedEnumCounter() throws IOException {
     final ReduceDriver<Text, Text, Text, Text> driver = ReduceDriver
